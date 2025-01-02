@@ -56,7 +56,7 @@ async def tally_adipray(interaction: discord.Interaction, thread_id: str = None)
                 message_date = message.created_at.date() 
                 # Check if the keyword exists and the user has not been counted for the same day
                 if ("adipray" in message.content.lower() or 
-                     'PES2_Pray'.lower() in message.content.lower()):
+                     'PES2_Pray'.lower() in message.content.lower() or 'pepepray'.lower() in message.content.lower()):
                      if message.author.id not in bot.daily_users[message_date]:
                          bot.response_tally[message.author.id] += 1
                          bot.daily_users[message_date].add(message.author.id)
