@@ -5,6 +5,9 @@ import datetime
 from collections import defaultdict
 from dotenv import load_dotenv
 import os
+import re
+from pymongo import MongoClient
+
 # Bot setup
 intents = discord.Intents.default()
 intents.messages = True
@@ -25,55 +28,70 @@ class AdiPrayBot(commands.Bot):
 
 bot = AdiPrayBot()
 
-@bot.tree.command(name="tally_adipray", description="Tally users who sent messages containing 'adipray' in channels")
+# MongoDB setup
+mongo_client = MongoClient(os.getenv("MONGO_URI"))
+
+PRAYGE_REGEX = re.compile(r"(prayge|adipray|pepepray|PES2_Pray|adipray~1)", re.IGNORECASE)
+
+@bot.tree.command(name="tally_adipray", description="Tally users who sent messages containing prayge emotes in a specific chat and store in MongoDB")
 async def tally_adipray(interaction: discord.Interaction, thread_id: str = None):
-    await interaction.response.defer()  # Defer the response as this might take a while
-    
+    await interaction.response.defer()
     print("Tallying")
-    bot.response_tally.clear()
-    bot.daily_users.clear()
-    # Set the start date (Jan 1st of the previous year)
-    now = datetime.datetime.utcnow()
-    start_date = datetime.datetime(year=now.year-1, month=1, day=1)     
-    # Determine whether to check the entire server or a specific thread
     if thread_id:
         try:
             thread = await bot.fetch_channel(int(thread_id))
-            if not isinstance(thread, discord.Thread):
-                await interaction.followup.send("Invalid thread ID. Please provide a valid thread ID.")
+            if not isinstance(thread, (discord.Thread, discord.TextChannel)):
+                await interaction.followup.send("Invalid thread ID. Please provide a valid thread or channel ID.")
                 return
             channels_to_check = [thread]
         except (ValueError, discord.NotFound):
-            await interaction.followup.send("Invalid thread ID. Please provide a valid thread ID.")
+            await interaction.followup.send("Invalid thread ID. Please provide a valid thread or channel ID.")
             return
     else:
         channels_to_check = interaction.guild.text_channels
-    
-    # Scan the selected channels
+
     for channel in channels_to_check:
+        db = mongo_client[str(channel.id)]
+        collection = db["prayge_tally"]
+        user_counts = {}
+        user_info = {}
+        user_weeks = {}  # Track which weeks a user has already been counted
         try:
-            async for message in channel.history(after=start_date, limit=None, oldest_first=True):
-                message_date = message.created_at.date() 
-                # Check if the keyword exists and the user has not been counted for the same day
-                if ("adipray" in message.content.lower() or 
-                     'PES2_Pray'.lower() in message.content.lower() or 'pepepray'.lower() in message.content.lower()):
-                     if message.author.id not in bot.daily_users[message_date]:
-                         bot.response_tally[message.author.id] += 1
-                         bot.daily_users[message_date].add(message.author.id)
-                         await asyncio.sleep(0.1)  # Delay between each message
+            async for message in channel.history(limit=None, oldest_first=True):
+                if PRAYGE_REGEX.search(message.content):
+                    user_id = message.author.id
+                    user_name = message.author.name
+                    user_display_name = message.author.display_name if hasattr(message.author, 'display_name') else message.author.name
+                    user_avatar = getattr(message.author, 'avatar', None)
+                    # Map deleted users and 'marz085123' to 'marzofearth' and use the same user_id for all
+                    if user_name == 'marz085123' or user_display_name.lower().startswith('deleted user'):
+                        user_id = 1122047166811226122
+                        user_display_name = 'marzofearth'
+                    # Only count if message is on a Friday
+                    msg_date = message.created_at.date()
+                    if True:  # 4 = Friday
+                        week_key = (user_id, msg_date.isocalendar()[1], msg_date.year)
+                        if week_key not in user_weeks:
+                            user_counts[user_id] = user_counts.get(user_id, 0) + 1
+                            user_info[user_id] = {
+                                "user_id": user_id,
+                                "user_name": user_name,
+                                "user_display_name": user_display_name,
+                                "avatar": str(user_avatar) if user_avatar else None
+                            }
+                            user_weeks[week_key] = True
+                    await asyncio.sleep(0.01)
         except discord.Forbidden:
-            continue  # Skip channels the bot can't access
-    
-    # Generate the rankings
-    leaderboard = "📊 **'Adipray' Message Tally** 📊\n"
-    ranked_users = sorted(bot.response_tally.items(), key=lambda x: x[1], reverse=True)
-    
-    for idx, (user_id, count) in enumerate(ranked_users, start=1):
-        user = await bot.fetch_user(user_id)
-        leaderboard += f"{idx}. {user.name}: Prayed a total of {count} time(s)!\n"
-    
-    print(leaderboard)
-    await interaction.followup.send("🥳🥳🥳 LEADERBOARD GENERATED 🥳🥳🥳")
+            continue
+        # Update MongoDB per user (by user_id, user_name, user_display_name, avatar)
+        for user_id, count in user_counts.items():
+            info = user_info[user_id]
+            collection.update_one(
+                {"user_id": user_id},
+                {"$inc": {"count": count}, "$set": {"user_name": info["user_name"], "user_display_name": info["user_display_name"], "avatar": info["avatar"]}},
+                upsert=True
+            )
+    await interaction.followup.send("Tally complete and stored in MongoDB.")
 
 # @bot.tree.command(name="save_tally", description="Save the current tally data to a file")
 # async def save_tally(interaction: discord.Interaction):

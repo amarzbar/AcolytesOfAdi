@@ -1,0 +1,3 @@
+<!-- Use this file to provide workspace-specific custom instructions to Copilot. For more details, visit https://code.visualstudio.com/docs/copilot/copilot-customization#_use-a-githubcopilotinstructionsmd-file -->
+
+This project is a Next.js (TypeScript) frontend for the AdiPray leaderboard. It connects to a MongoDB backend and displays a leaderboard of users, including their Discord profile picture, display name, username, and prayge count. Use modern, responsive UI design with Tailwind CSS. Prioritize clean, accessible, and visually appealing layouts. Fetch Discord avatars using user_id and the Discord CDN. The leaderboard data is served from a MongoDB collection structured as described in the backend bot code.
